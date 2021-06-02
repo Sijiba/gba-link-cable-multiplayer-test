@@ -1,3 +1,8 @@
+#GBA Link Cable Multiplayer Test
+Experimenting with the different communication modes of the GBA with the goal to create functional homebrew and/or multiplayer games.
+Includes means to test on real hardware.
+
+Original project described below:
 # GBA Link Cable Dumper
 A GC and Wii Homebrew App to get GBA BIOS, ROMs and saves via the GC GBA Link Cable.  
 Save Support based on SendSave by Chishm.  
