@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "libSave.h"
+#include "gbaSpoofTrade.h"
+#include "datahelpers.h"
 
 #define	REG_WAITCNT *(vu16 *)(REG_BASE + 0x204)
 #define JOY_WRITE 2
@@ -39,6 +41,20 @@ s32 getGameSize(void)
 	return i;
 }
 
+void printBits(size_t const size, void const * const ptr)
+{
+    unsigned char *b = (unsigned char*) ptr;
+    unsigned char byte;
+    int i, j;
+    
+    for (i = size-1; i >= 0; i--) {
+        for (j = 7; j >= 0; j--) {
+            byte = (b[i] >> j) & 1;
+            iprintf("%u", byte);
+        }
+    }
+}
+
 //---------------------------------------------------------------------------------
 // Program entry point
 //---------------------------------------------------------------------------------
@@ -55,9 +71,7 @@ int main(void) {
 	REG_JOYTR = 0;
 	// ansi escape sequence to set print co-ordinates
 	// /x1b[line;columnH
-	u32 i;
-	iprintf("\x1b[9;2HGBA Link Cable Dumper v1.6\n");
-	iprintf("\x1b[10;4HPlease look at the TV\n");
+	iprintf("\x1b[1;1HGBA<->GBA/GBC Link Test\n");
 	// disable this, needs power
 	SNDSTAT = 0;
 	SNDBIAS = 0;
@@ -65,176 +79,75 @@ int main(void) {
 	REG_WAITCNT = 0x0317;
 	//clear out previous messages
 	REG_HS_CTRL |= JOY_RW;
-	while (1) {
-		if(REG_HS_CTRL&JOY_READ)
+	
+
+	//Prepare display for held keys
+	iprintf("\x1b[4;1HMy Keys:");
+	iprintf("\x1b[7;1HVS Keys:");
+	const int keys[] = {KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_L, KEY_R, KEY_A, KEY_B, KEY_START, KEY_SELECT};
+	const char * keyNames[] = {"u", "d", "l", "r", "L", "R", "A", "B", "S", "s"};
+	const int keysCount = sizeof(keys)/sizeof(keys[0]);
+	const int playerCount = 2;
+	u16 playerKeys[2] = {0,0};
+	u16 previousKeys[2] = {0,0};
+	const int playerRowOffset = 4;
+	const int playerColOffset = 10;
+
+	int initiatedLink = 0;
+	irqEnable(IRQ_SERIAL);
+	irqSet(IRQ_SERIAL, NULL);
+    setLinkType(0);
+
+	while(1)
+	{
+		for (int i = 0; i < playerCount; i++)
+			previousKeys[i] = playerKeys[i];
+		
+		scanKeys();
+		u16 playerKeys[2] = {0,0};
+		playerKeys[0] = keysHeld();
+		playerKeys[1] = 0xFFFF;
+
+		//Display held buttons for all players
+		
+		for (int p = 0; p < playerCount; p++)
 		{
-			REG_HS_CTRL |= JOY_RW;
-			s32 gamesize = getGameSize();
-			u32 savesize = SaveSize(save_data,gamesize);
-			REG_JOYTR = gamesize;
-			//wait for a cmd receive for safety
-			while((REG_HS_CTRL&JOY_WRITE) == 0) ;
-			REG_HS_CTRL |= JOY_RW;
-			REG_JOYTR = savesize;
-			//wait for a cmd receive for safety
-			while((REG_HS_CTRL&JOY_WRITE) == 0) ;
-			REG_HS_CTRL |= JOY_RW;
-			if(gamesize == -1)
+			int xPos = playerRowOffset + (3 * p);
+			iprintf("\x1b[%d;%dH", xPos, playerColOffset);
+			printBits(sizeof(playerKeys[0]), &playerKeys[p]);
+			iprintf("\x1b[%d;%dH", xPos + 1, playerColOffset);
+			for (int k = 0; k < keysCount; k++)
 			{
-				REG_JOYTR = 0;
-				continue; //nothing to read
-			}
-			//game in, send header
-			for(i = 0; i < 0xC0; i+=4)
-			{
-				REG_JOYTR = *(vu32*)(0x08000000+i);
-				while((REG_HS_CTRL&JOY_READ) == 0) ;
-				REG_HS_CTRL |= JOY_RW;
-			}
-			REG_JOYTR = 0;
-			//wait for other side to choose
-			while((REG_HS_CTRL&JOY_WRITE) == 0) ;
-			REG_HS_CTRL |= JOY_RW;
-			u32 choseval = REG_JOYRE;
-			if(choseval == 0)
-			{
-				REG_JOYTR = 0;
-				continue; //nothing to read
-			}
-			else if(choseval == 1)
-			{
-				//disable interrupts
-				u32 prevIrqMask = REG_IME;
-				REG_IME = 0;
-				//dump the game
-				for(i = 0; i < gamesize; i+=4)
-				{
-					REG_JOYTR = *(vu32*)(0x08000000+i);
-					while((REG_HS_CTRL&JOY_READ) == 0) ;
-					REG_HS_CTRL |= JOY_RW;
-				}
-				//restore interrupts
-				REG_IME = prevIrqMask;
-			}
-			else if(choseval == 2)
-			{
-				//disable interrupts
-				u32 prevIrqMask = REG_IME;
-				REG_IME = 0;
-				//backup save
-				switch (savesize){
-				case 0x200:
-					GetSave_EEPROM_512B(save_data);
-					break;
-				case 0x2000:
-					GetSave_EEPROM_8KB(save_data);
-					break;
-				case 0x8000:
-					GetSave_SRAM_32KB(save_data);
-					break;
-				case 0x10000:
-					GetSave_FLASH_64KB(save_data);
-					break;
-				case 0x20000:
-					GetSave_FLASH_128KB(save_data);
-					break;
-				default:
-					break;
-				}
-				//restore interrupts
-				REG_IME = prevIrqMask;
-				//say gc side we read it
-				REG_JOYTR = savesize;
-				//wait for a cmd receive for safety
-				while((REG_HS_CTRL&JOY_WRITE) == 0) ;
-				REG_HS_CTRL |= JOY_RW;
-				//send the save
-				for(i = 0; i < savesize; i+=4)
-				{
-					REG_JOYTR = *(vu32*)(save_data+i);
-					while((REG_HS_CTRL&JOY_READ) == 0) ;
-					REG_HS_CTRL |= JOY_RW;
-				}
-			}
-			else if(choseval == 3 || choseval == 4)
-			{
-				REG_JOYTR = savesize;
-				if(choseval == 3)
-				{
-					//receive the save
-					for(i = 0; i < savesize; i+=4)
-					{
-						while((REG_HS_CTRL&JOY_WRITE) == 0) ;
-						REG_HS_CTRL |= JOY_RW;
-						*(vu32*)(save_data+i) = REG_JOYRE;
-					}
-				}
+				if (playerKeys[p] & keys[k])
+					iprintf(keyNames[k]);
 				else
-				{
-					//clear the save
-					for(i = 0; i < savesize; i+=4)
-						*(vu32*)(save_data+i) = 0;
-				}
-				//disable interrupts
-				u32 prevIrqMask = REG_IME;
-				REG_IME = 0;
-				//write it
-				switch (savesize){
-				case 0x200:
-					PutSave_EEPROM_512B(save_data);
-					break;
-				case 0x2000:
-					PutSave_EEPROM_8KB(save_data);
-					break;
-				case 0x8000:
-					PutSave_SRAM_32KB(save_data);
-					break;
-				case 0x10000:
-					PutSave_FLASH_64KB(save_data);
-					break;
-				case 0x20000:
-					PutSave_FLASH_128KB(save_data);
-					break;
-				default:
-					break;
-				}
-				//restore interrupts
-				REG_IME = prevIrqMask;
-				//say gc side we're done
-				REG_JOYTR = 0;
-				//wait for a cmd receive for safety
-				while((REG_HS_CTRL&JOY_WRITE) == 0) ;
-				REG_HS_CTRL |= JOY_RW;
+					iprintf(" ");
 			}
-			REG_JOYTR = 0;
+			//*/
 		}
-		else if(REG_HS_CTRL&JOY_WRITE)
+
+		printRegisters();
+
+		int type = getLinkType();
+		iprintf("\x1b[18;1HMode: %d", type);
+		
+		if (((!previousKeys[0]) & KEY_A) && (playerKeys[0] & KEY_A))
 		{
-			REG_HS_CTRL |= JOY_RW;
-			u32 choseval = REG_JOYRE;
-			if(choseval == 5)
-			{
-				//disable interrupts
-				u32 prevIrqMask = REG_IME;
-				REG_IME = 0;
-				//dump BIOS
-				for (i = 0; i < 0x4000; i+=4)
-				{
-					// the lower bits are inaccurate, so just get it four times :)
-					u32 a = MidiKey2Freq((WaveData *)(i-4), 180-12, 0) * 2;
-					u32 b = MidiKey2Freq((WaveData *)(i-3), 180-12, 0) * 2;
-					u32 c = MidiKey2Freq((WaveData *)(i-2), 180-12, 0) * 2;
-					u32 d = MidiKey2Freq((WaveData *)(i-1), 180-12, 0) * 2;
-					REG_JOYTR = ((a>>24<<24) | (d>>24<<16) | (c>>24<<8) | (b>>24));
-					while((REG_HS_CTRL&JOY_READ) == 0) ;
-					REG_HS_CTRL |= JOY_RW;
-				}
-				//restore interrupts
-				REG_IME = prevIrqMask;
-			}
-			REG_JOYTR = 0;
+			initiatedLink = 1;
+		}	
+
+		if (playerKeys[0] & KEY_B)
+		{
+			resetLink();								
+			initiatedLink = 0;
 		}
-		Halt();
+ 
+		if (initiatedLink)
+		{
+			attemptLink();
+		}
+
+		
 	}
 }
 
