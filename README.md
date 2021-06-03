@@ -1,4 +1,4 @@
-#GBA Link Cable Multiplayer Test
+# GBA Link Cable Multiplayer Test
 Experimenting with the different communication modes of the GBA with the goal to create functional homebrew and/or multiplayer games.
 Includes means to test on real hardware.
 
