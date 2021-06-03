@@ -8,8 +8,10 @@
 #define LINK_NODATA 0xFE
 #define LINK_PREAMBLE 0xFD
 
-#define LINK_TOLEADER 0x1C
-#define LINK_TOPARTNER 0x24
+#define LINK_TOLEADER 0x02
+#define LINK_TOPARTNER 0x01
+#define LINK_ACK 0x00
+#define LINK_TRADECUE 0xD4
 
 #define setmask(reg, mask) (reg = reg | mask)
 #define unsetmask(reg, mask) (reg = reg & -mask)
@@ -20,6 +22,7 @@
 int linkProgress = 0;
 int isLeader = 0;
 int playerNum = -1;
+int isWaitingOnData = false;
 
 typedef enum LINK_MODE {
     Normal8 = 0,
@@ -51,45 +54,51 @@ int getLinkType()
     return Normal8;
 }
 
+void handleSerialInterrupt(void);
+
 void setLinkType(int mode)
 {
     switch (mode) {
         case Normal8:
         {
-            unsetmask(REG_RCNT, 0x8000);
-            unsetmask(REG_RCNT, 0x4000);
-            unsetmask(REG_RCNT, 0xC000);
-            unsetmask(REG_SIOCNT,SIO_32BIT);
-            unsetmask(REG_SIOCNT,SIO_MULTI);
+            REG_RCNT = R_NORMAL;
+            REG_SIOCNT = SIO_8BIT;
+            //unsetmask(REG_RCNT, 0x8000);
+            //unsetmask(REG_RCNT, 0x4000);
+            //unsetmask(REG_RCNT, 0xC000);
+            //unsetmask(REG_SIOCNT,SIO_32BIT);
+            //unsetmask(REG_SIOCNT,SIO_MULTI);
             break;
         }
         case Normal32:
         {
-            unsetmask(REG_RCNT, 0xC000);
-            unsetmask(REG_SIOCNT,SIO_MULTI);
-            setmask(REG_SIOCNT,SIO_32BIT);
+            REG_RCNT = R_NORMAL;
+            REG_SIOCNT = SIO_32BIT;
+            //unsetmask(REG_RCNT, 0xC000);
+            //unsetmask(REG_SIOCNT,SIO_MULTI);
+            //setmask(REG_SIOCNT,SIO_32BIT);
             break;
         }
         case Multiplay16:
         {
-            REG_RCNT = REG_RCNT & 0x7FFF;
-            REG_SIOCNT = REG_SIOCNT & 0xEFFF | SIO_MULTI;
+            REG_RCNT = R_MULTI;
+            REG_SIOCNT = SIO_MULTI;
             break;
         }
         case UART:
         {
-            REG_RCNT = REG_RCNT & 0x7FFF;
-            REG_SIOCNT = REG_SIOCNT | SIO_UART;
+            REG_RCNT = R_UART;
+            REG_SIOCNT = SIO_UART;
             break;
         }
         case GeneralPurpose:
         {
-            REG_RCNT = REG_RCNT | R_GPIO & 0xBFFF;
+            REG_RCNT = R_GPIO;
             break;
         }
         case JoyBus:
         {
-            REG_RCNT = REG_RCNT | R_JOYBUS;
+            REG_RCNT = R_JOYBUS;
             break;
         }
     }
@@ -124,6 +133,74 @@ int exchangeData(int byte)
     return LINK_NODATA;
 }
 
+int exchangeDataWithTimeout(int byte, int framesTimeout)
+{
+    int i = 0;
+    switch (getLinkType())
+    {
+        case Normal8:
+        {
+            REG_SIODATA8 = byte;
+            if (isLeader)
+            {
+                //Leader, Normal8
+                unsetmask(REG_SIOCNT, SIO_START);
+                setmask(REG_SIOCNT,SIO_CLK_INT);
+                i=0;
+                while (isbitset(REG_SIOCNT, SIO_RDY))
+                {
+                    VBlankIntrWait();
+                    i++;
+                    if (i >= framesTimeout)
+                        break;
+                }
+                if (isbitset(REG_SIOCNT,SIO_RDY))
+                {
+                    iprintf("\x1b[3;1HPartner not ready    \n");
+                    return LINK_NODATA;
+                }
+
+                setmask(REG_SIOCNT, SIO_START);
+                while(isbitset(REG_SIOCNT,SIO_START));
+                return REG_SIODATA8;
+            }
+            else
+            {
+                //Partner, Normal8
+                setmask(REG_SIOCNT, SIO_START);
+                unsetmask(REG_SIOCNT, SIO_SO_HIGH);
+                if (isbitset(REG_SIOCNT,SIO_START))
+                {
+                    for (i=0; i<framesTimeout; i++)
+                    {
+                        VBlankIntrWait();
+                        if (!isbitset(REG_SIOCNT,SIO_START))
+                            break;
+                    }
+                }
+                if (!isbitset(REG_SIOCNT,SIO_START))
+                {
+                    setmask(REG_SIOCNT, SIO_SO_HIGH);
+                    return REG_SIODATA8;
+                }
+                else
+                {
+                    iprintf("\x1b[3;1HNobody's here...    \n");
+                    return LINK_NODATA;
+                }
+
+            }
+            break;
+        }
+        default:
+        {
+            //Unimplemented
+        }
+
+    }
+    return LINK_NODATA;
+}
+
 int setupCommunication()
 {
     REG_SIODATA8 = LINK_NODATA;
@@ -148,130 +225,67 @@ int setupCommunication()
     return 1;
 }
 
-int checkInitialHandshake() {
+int doWholeHandshake() {
     int waitcycles = 5;
     int i;
     
-    if (!isLeader)
+    //Try to be partner.
+    isLeader = false;
+    if (exchangeDataWithTimeout(LINK_TOLEADER, 2) == LINK_TOPARTNER)
     {
-        //Init data
-        //  Send 0x02, seek 0x01
-        REG_SIODATA8 = LINK_TOLEADER;
-        //Try to be partner.
-        //init mode/clock
-        unsetmask(REG_SIOCNT, SIO_CLK_INT);
-        iprintf("\x1b[3;1HAre we partner?       \n");
+        //while (exchangeDataWithTimeout(LINK_ACK, 10) != LINK_ACK);
 
-        
-        //Almost ready
-        unsetmask(REG_SIOCNT, SIO_START);
-        unsetmask(REG_SIOCNT,SIO_SO_HIGH);
-
-        //Indicate ready
-        setmask(REG_SIOCNT, SIO_START);
-        //setmask(REG_SIOCNT, SIO_SO_HIGH);
-        
-        //wait for master
-        for (i=0; i<waitcycles; i++)
-        {
-            VBlankIntrWait();
-        }
-        //If Start was unset process data
-        if (!isbitset(REG_SIOCNT, SIO_START))
-        {
-            setmask(REG_SIOCNT, SIO_SO_HIGH);
-            
-            if (REG_SIODATA8 == LINK_TOPARTNER)
-            {
-                iprintf("\x1b[3;1HBecame partner!      \n");
-                playerNum = 2;
-            }
-            else
-            {
-                iprintf("\x1b[3;1HWeird data from leader!      \n");
-            }
-            setmask(REG_IF, IRQ_SERIAL);
-        }
-        else
-        {
-            iprintf("\x1b[3;1HNo link!        \n");
-        }
-        if (playerNum < 0)
-            isLeader = true;
-    }
-    else
-    {
-        //Try to be leader. Send 1, get 2
-
-        //Init data
-        REG_SIODATA8 = LINK_TOPARTNER;
-        //Init clock/transfer rate
-        unsetmask(REG_SIOCNT, SIO_START);
-        //TODO why isn't internal clock setting consistently?
-        setmask(REG_SIOCNT, SIO_CLK_INT);
-        printRegisters();
-
-        iprintf("\x1b[3;1HAre we leader?          \n");
-        
-        //Wait for partner w/timeout
-        if (!isbitset(REG_SIOCNT, SIO_RDY))
-        {
-            //set ready
-            setmask(REG_SIOCNT, SIO_START);
-            
-            for (i=0; i<waitcycles; i++)
-            {
-                VBlankIntrWait();
-            }
-            //*/
-
-            //IntrWait(0,IRQ_SERIAL);
-            
-            if (!isbitset(REG_SIOCNT, SIO_START))
-            {
-                if (REG_SIODATA8 == LINK_TOLEADER)
-                {
-                    iprintf("\x1b[3;1HBecame leader!          \n");
-                    //exchangeData(0x01);
-                    playerNum = 1;
-                }
-                else
-                    iprintf("\x1b[3;1HWeird data from partner!      \n");
-            }
-            else
-                iprintf("\x1b[3;1HNo data from partner!         \n");
-        }
-        else
-            iprintf("\x1b[3;1HPartner not ready!    \n");
-        
+        playerNum = 2;
+        iprintf("\x1b[3;1HBecame partner!         \n");
     }
     
-    //unsetmask(REG_SIOCNT, SIO_START);
+    if (playerNum < 0)
+    {
+        isLeader = true;
+        //iprintf("\x1b[3;1HNot partner. Leader?%d         \n",val);
+        //Try to be leader. Send 1, get 2     
+        //val = LINK_NODATA;
+        while (exchangeDataWithTimeout(LINK_TOPARTNER, 10) != LINK_TOLEADER);
+        //while (exchangeDataWithTimeout(LINK_ACK, 10) != LINK_ACK);
+        
+        playerNum = 1;
+        iprintf("\x1b[3;1HBecame leader!          \n");
+    }
 
+
+	iprintf("\x1b[18;12HPlayer: %d", playerNum);
     if (playerNum >= 0)
         return 1;
     else
-    {
-        for (i=0; i<waitcycles; i++)
-        {
-            VBlankIntrWait();
-        }
         return 0;
-    }
 }
 
 int checkMenuing() {
     //Send 4, wait for partner to agree
     
-    iprintf("\x1b[3;1HAwaiting P%d decision!   \n", playerNum);
-    if (REG_SIODATA8 == 4)
+    iprintf("\x1b[3;1HI'm P%d! Pick an option.   \n", playerNum);
+    int val = LINK_NODATA;
+    while ((0xD4 > val) || (val > 0xD6))
     {
-	    iprintf("\x1b[3;1HEntering trade!   \n");
-        return 1;
+        val = exchangeDataWithTimeout(LINK_TRADECUE, 10);
+        iprintf("\x1b[2;1HOther one has %x        \n", val);
+    }
+
+    if (val >= LINK_TRADECUE)
+    {
+        if (val == LINK_TRADECUE)
+        {
+            iprintf("\x1b[3;1HEntering trade!      \n");
+            return 1;
+        }
+        else
+        {
+            iprintf("\x1b[3;1HOther one picked %x     \n", val);
+            return 0;
+        }
     }
     return 0;
 }
-
 
 void sendData() {
     // Initialize Data
@@ -297,35 +311,28 @@ int checkTradeReady() {
     return 0;
 }
 
-void attemptLink() {
-    switch(linkProgress) {
-        case 0:
-        {
-            linkProgress += setupCommunication();
-            break;
-        }
-        case 1:
-        {
-            linkProgress += checkInitialHandshake();
-            break;
-        }
-        case 2:
-        {
-            linkProgress += checkMenuing();
-            break;
-        }
-        case 3:
-        {
-            linkProgress += checkTradeReady();
-            break;
-        }
-        default:
-        {}
+void attemptFullLink() {
+    if (!setupCommunication())
+    {
+        iprintf("\x1b[2;1HCouldn't setup.     ");
+        return;
     }
-    iprintf("\x1b[2;1HLinkProgress: %d", linkProgress);
-    return;
+    if (!doWholeHandshake())
+    {
+        iprintf("\x1b[2;1HCouldn't handshake.    ");
+        return;
+    }
+    if (!checkMenuing())
+    {
+        iprintf("\x1b[2;1HCouldn't menu.       ");
+        return;
+    }
+    if (!checkTradeReady())
+    {
+        iprintf("\x1b[2;1HCouldn't trade.      ");
+        return;
+    }
 }
-
 
 void resetLink()
 {
@@ -333,6 +340,7 @@ void resetLink()
     linkProgress = 0;
     isLeader = 0;
     playerNum = -1;
+    isWaitingOnData = false;
     iprintf("\x1b[2;1HReset Link              \n");
     iprintf("\x1b[3;1HLink Reset              \n");
     return;

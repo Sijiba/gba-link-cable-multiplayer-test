@@ -133,7 +133,7 @@ int main(void) {
 		
 		if (((!previousKeys[0]) & KEY_A) && (playerKeys[0] & KEY_A))
 		{
-			initiatedLink = 1;
+			initiatedLink++;
 		}	
 
 		if (playerKeys[0] & KEY_B)
@@ -142,11 +142,15 @@ int main(void) {
 			initiatedLink = 0;
 		}
  
-		if (initiatedLink)
+		if (initiatedLink == 1)
 		{
-			attemptLink();
+			attemptFullLink();
+			initiatedLink++;
 		}
-
+		else if (initiatedLink > 1)
+		{
+			initiatedLink = 2;
+		}
 		
 	}
 }
