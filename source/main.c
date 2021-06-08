@@ -117,16 +117,19 @@ int main(void) {
 			iprintf("\x1b[6;1H");
 			printBits(1, &sendRight);
 
-			u8 valLeft = (u8)exchangeDataWithTimeout(sendLeft, 6);
-			u8 valRight = (u8)exchangeDataWithTimeout(sendRight, 6);
+			u8 valLeft = (u8)exchangeData(sendLeft);
+			u8 valRight = (u8)exchangeData(sendRight);
 			
-			if ((valLeft != 0xFE) && (valRight != 0xFE))
+			if ((valLeft == 0xFE) || (valRight == 0xFE))
 			{
-				playerKeys[1] = (valLeft << 8) + valRight;
+				playerKeys[1] = 0;
+				resetLink();								
+				initiatedLink = 0;
+				linkSucceeded = 0;
 			}
 			else
 			{
-				playerKeys[1] = 0;
+				playerKeys[1] = (valLeft << 8) + valRight;
 			}
 
 			iprintf("\x1b[8;1H");
@@ -136,7 +139,6 @@ int main(void) {
 		}
 
 		//Display held buttons for all players
-		
 		for (int p = 0; p < playerCount; p++)
 		{
 			int xPos = playerRowOffset + (3 * p);
@@ -150,7 +152,6 @@ int main(void) {
 				else
 					iprintf(" ");
 			}
-			//*/
 		}
 
 		printRegisters();
@@ -163,7 +164,7 @@ int main(void) {
 			initiatedLink++;
 		}	
 
-		if (playerKeys[0] & KEY_B)
+		if (playerKeys[0] & KEY_B && (initiatedLink > 0))
 		{
 			resetLink();								
 			initiatedLink = 0;

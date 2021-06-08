@@ -103,20 +103,29 @@ int exchangeData(int byte)
     {
         case Normal8:
         {
+            REG_SIODATA8 = byte;
             if (isLeader)
             {
-
+                //Leader, Normal8
+                setmask(REG_SIOCNT, SIO_SO_HIGH);
+                unsetmask(REG_SIOCNT, SIO_START);
+                setmask(REG_SIOCNT,SIO_CLK_INT);
+                while (!isbitset(REG_SIOCNT, SIO_RDY));
+                setmask(REG_SIOCNT, SIO_START);
+                IntrWait(0,IRQ_SERIAL);
+                unsetmask(REG_SIOCNT, SIO_SO_HIGH);
+                return REG_SIODATA8;
             }
             else
             {
-
+                //Partner, Normal8
+                setmask(REG_SIOCNT, SIO_START);
+                unsetmask(REG_SIOCNT, SIO_SO_HIGH);
+                IntrWait(0,IRQ_SERIAL);
+                setmask(REG_SIOCNT, SIO_SO_HIGH);
+                return REG_SIODATA8;
             }
-            REG_SIODATA8 = byte;
-            setmask(REG_SIOCNT,SIO_START);
-            IntrWait(0,IRQ_SERIAL);
-            setmask(REG_SIOCNT,SIO_SO_HIGH);
-            return REG_SIODATA8;
-            //break;
+            break;
         }
         default:
         {
@@ -137,6 +146,7 @@ int exchangeDataWithTimeout(int byte, int framesTimeout)
             if (isLeader)
             {
                 //Leader, Normal8
+                setmask(REG_SIOCNT, SIO_SO_HIGH);
                 unsetmask(REG_SIOCNT, SIO_START);
                 setmask(REG_SIOCNT,SIO_CLK_INT);
                 i=0;
@@ -156,6 +166,7 @@ int exchangeDataWithTimeout(int byte, int framesTimeout)
 
                 setmask(REG_SIOCNT, SIO_START);
                 IntrWait(0,IRQ_SERIAL);
+                unsetmask(REG_SIOCNT, SIO_SO_HIGH);
                 return REG_SIODATA8;
             }
             else
