@@ -7,7 +7,7 @@ extern "C" {
 #endif
 //---------------------------------------------------------------------------------
 
-void attemptFullLink();
+int attemptFullLink();
 void resetLink();
 
 /*

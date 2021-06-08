@@ -63,20 +63,12 @@ void setLinkType(int mode)
         {
             REG_RCNT = R_NORMAL;
             REG_SIOCNT = SIO_8BIT;
-            //unsetmask(REG_RCNT, 0x8000);
-            //unsetmask(REG_RCNT, 0x4000);
-            //unsetmask(REG_RCNT, 0xC000);
-            //unsetmask(REG_SIOCNT,SIO_32BIT);
-            //unsetmask(REG_SIOCNT,SIO_MULTI);
             break;
         }
         case Normal32:
         {
             REG_RCNT = R_NORMAL;
             REG_SIOCNT = SIO_32BIT;
-            //unsetmask(REG_RCNT, 0xC000);
-            //unsetmask(REG_SIOCNT,SIO_MULTI);
-            //setmask(REG_SIOCNT,SIO_32BIT);
             break;
         }
         case Multiplay16:
@@ -106,6 +98,7 @@ void setLinkType(int mode)
 
 int exchangeData(int byte)
 {
+    //Unimplemented
     switch(getLinkType())
     {
         case Normal8:
@@ -154,14 +147,15 @@ int exchangeDataWithTimeout(int byte, int framesTimeout)
                     if (i >= framesTimeout)
                         break;
                 }
-                if (isbitset(REG_SIOCNT,SIO_RDY))
+                if (isbitset(REG_SIOCNT,SIO_RDY) && (i >= framesTimeout))
                 {
                     iprintf("\x1b[3;1HPartner not ready    \n");
+                    REG_SIODATA8 = LINK_NODATA;
                     return LINK_NODATA;
                 }
 
                 setmask(REG_SIOCNT, SIO_START);
-                while(isbitset(REG_SIOCNT,SIO_START));
+                IntrWait(0,IRQ_SERIAL);
                 return REG_SIODATA8;
             }
             else
@@ -169,6 +163,7 @@ int exchangeDataWithTimeout(int byte, int framesTimeout)
                 //Partner, Normal8
                 setmask(REG_SIOCNT, SIO_START);
                 unsetmask(REG_SIOCNT, SIO_SO_HIGH);
+
                 if (isbitset(REG_SIOCNT,SIO_START))
                 {
                     for (i=0; i<framesTimeout; i++)
@@ -180,12 +175,12 @@ int exchangeDataWithTimeout(int byte, int framesTimeout)
                 }
                 if (!isbitset(REG_SIOCNT,SIO_START))
                 {
-                    setmask(REG_SIOCNT, SIO_SO_HIGH);
                     return REG_SIODATA8;
                 }
                 else
                 {
                     iprintf("\x1b[3;1HNobody's here...    \n");
+                    REG_SIODATA8 = LINK_NODATA;
                     return LINK_NODATA;
                 }
 
@@ -233,7 +228,7 @@ int doWholeHandshake() {
     isLeader = false;
     if (exchangeDataWithTimeout(LINK_TOLEADER, 2) == LINK_TOPARTNER)
     {
-        //while (exchangeDataWithTimeout(LINK_ACK, 10) != LINK_ACK);
+        while (exchangeDataWithTimeout(LINK_ACK, 10) != LINK_ACK);
 
         playerNum = 2;
         iprintf("\x1b[3;1HBecame partner!         \n");
@@ -242,11 +237,9 @@ int doWholeHandshake() {
     if (playerNum < 0)
     {
         isLeader = true;
-        //iprintf("\x1b[3;1HNot partner. Leader?%d         \n",val);
-        //Try to be leader. Send 1, get 2     
-        //val = LINK_NODATA;
+        //Try to be leader. Send 1, get 2
         while (exchangeDataWithTimeout(LINK_TOPARTNER, 10) != LINK_TOLEADER);
-        //while (exchangeDataWithTimeout(LINK_ACK, 10) != LINK_ACK);
+        while (exchangeDataWithTimeout(LINK_ACK, 10) != LINK_ACK);
         
         playerNum = 1;
         iprintf("\x1b[3;1HBecame leader!          \n");
@@ -265,8 +258,10 @@ int checkMenuing() {
     
     iprintf("\x1b[3;1HI'm P%d! Pick an option.   \n", playerNum);
     int val = LINK_NODATA;
+    int i = 0;
     while ((0xD4 > val) || (val > 0xD6))
     {
+        //i++;
         val = exchangeDataWithTimeout(LINK_TRADECUE, 10);
         iprintf("\x1b[2;1HOther one has %x        \n", val);
     }
@@ -275,7 +270,7 @@ int checkMenuing() {
     {
         if (val == LINK_TRADECUE)
         {
-            iprintf("\x1b[3;1HEntering trade!      \n");
+            iprintf("\x1b[3;1HGot trade!             \n");
             return 1;
         }
         else
@@ -311,27 +306,29 @@ int checkTradeReady() {
     return 0;
 }
 
-void attemptFullLink() {
+int attemptFullLink() {
     if (!setupCommunication())
     {
         iprintf("\x1b[2;1HCouldn't setup.     ");
-        return;
+        return 0;
     }
     if (!doWholeHandshake())
     {
         iprintf("\x1b[2;1HCouldn't handshake.    ");
-        return;
+        return 0;
     }
     if (!checkMenuing())
     {
         iprintf("\x1b[2;1HCouldn't menu.       ");
-        return;
+        return 0;
     }
-    if (!checkTradeReady())
+    //if (!checkTradeReady())
+    if (false)
     {
         iprintf("\x1b[2;1HCouldn't trade.      ");
-        return;
+        return 0;
     }
+    return 1;
 }
 
 void resetLink()
