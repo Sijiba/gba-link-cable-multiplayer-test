@@ -149,7 +149,7 @@ int exchangeDataWithTimeout(int byte, int framesTimeout)
                 }
                 if (isbitset(REG_SIOCNT,SIO_RDY) && (i >= framesTimeout))
                 {
-                    iprintf("\x1b[3;1HPartner not ready    \n");
+                    iprintf("\x1b[3;1HPartner not ready      \n");
                     REG_SIODATA8 = LINK_NODATA;
                     return LINK_NODATA;
                 }
@@ -202,7 +202,7 @@ int setupCommunication()
     REG_SIODATA32 = LINK_NODATA;
     unsetmask(REG_SIOCNT, SIO_CLK_INT);
     setmask(REG_SIOCNT, SIO_IRQ);
-    iprintf("\x1b[3;1HComm setup...    \n");
+    iprintf("\x1b[3;1HComm setup...       \n");
     switch(getLinkType())
     {
         case Normal8:
@@ -263,7 +263,7 @@ int checkMenuing() {
     {
         //i++;
         val = exchangeDataWithTimeout(LINK_TRADECUE, 10);
-        iprintf("\x1b[2;1HOther one has %x        \n", val);
+        //iprintf("\x1b[2;1HOther one has %x        \n", val);
     }
 
     if (val >= LINK_TRADECUE)
