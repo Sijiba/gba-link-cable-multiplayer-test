@@ -71,7 +71,7 @@ int main(void) {
 	REG_JOYTR = 0;
 	// ansi escape sequence to set print co-ordinates
 	// /x1b[line;columnH
-	iprintf("\x1b[1;1HGBA<->GBA/GBC Link Test\n");
+	iprintf("\x1b[1;1HGBA Omni-Link Test\n");
 	// disable this, needs power
 	SNDSTAT = 0;
 	SNDBIAS = 0;
@@ -88,7 +88,7 @@ int main(void) {
 	const char * keyNames[] = {"u", "d", "l", "r", "L", "R", "A", "B", "S", "s"};
 	const int keysCount = sizeof(keys)/sizeof(keys[0]);
 	const int playerCount = 2;
-	u16 playerKeys[2] = {0,0};
+	u16 playerKeys[2] = {0,0xFFFF};
 	u16 previousKeys[2] = {0,0};
 	const int playerRowOffset = 4;
 	const int playerColOffset = 10;
@@ -101,28 +101,23 @@ int main(void) {
 
 	while(1)
 	{
+		//Update current and previous keys
 		for (int i = 0; i < playerCount; i++)
 			previousKeys[i] = playerKeys[i];
 		
 		scanKeys();
-		u16 playerKeys[2] = {0,0};
 		playerKeys[0] = keysHeld();
 		if (linkSucceeded)
 		{
 			u8 sendLeft = ((playerKeys[0]) >> 8);
 			u8 sendRight = playerKeys[0];
-			
-			iprintf("\x1b[5;1H");
-			printBits(1, &sendLeft);
-			iprintf("\x1b[6;1H");
-			printBits(1, &sendRight);
 
 			u8 valLeft = (u8)exchangeData(sendLeft);
 			u8 valRight = (u8)exchangeData(sendRight);
 			
 			if ((valLeft == 0xFE) || (valRight == 0xFE))
 			{
-				playerKeys[1] = 0;
+				playerKeys[1] = 0xFFFF;
 				resetLink();								
 				initiatedLink = 0;
 				linkSucceeded = 0;
@@ -132,10 +127,6 @@ int main(void) {
 				playerKeys[1] = (valLeft << 8) + valRight;
 			}
 
-			iprintf("\x1b[8;1H");
-			printBits(1, &valLeft);
-			iprintf("\x1b[9;1H");
-			printBits(1, &valRight);
 		}
 
 		//Display held buttons for all players
@@ -156,6 +147,7 @@ int main(void) {
 
 		printRegisters();
 
+		//Display current link mode
 		int type = getLinkType();
 		iprintf("\x1b[18;1HMode: %d", type);
 		
@@ -169,6 +161,7 @@ int main(void) {
 			resetLink();								
 			initiatedLink = 0;
 			linkSucceeded = 0;
+			playerKeys[1] = 0xFFFF;
 		}
  
 		if (initiatedLink == 1)

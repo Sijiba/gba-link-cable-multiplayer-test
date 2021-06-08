@@ -186,11 +186,12 @@ int exchangeDataWithTimeout(int byte, int framesTimeout)
                 }
                 if (!isbitset(REG_SIOCNT,SIO_START))
                 {
+                    unsetmask(REG_SIOCNT, SIO_SO_HIGH);
                     return REG_SIODATA8;
                 }
                 else
                 {
-                    iprintf("\x1b[3;1HNobody's here...    \n");
+                    iprintf("\x1b[3;1HNobody's here...       \n");
                     REG_SIODATA8 = LINK_NODATA;
                     return LINK_NODATA;
                 }
@@ -281,7 +282,7 @@ int checkMenuing() {
     {
         if (val == LINK_TRADECUE)
         {
-            iprintf("\x1b[3;1HGot trade!             \n");
+            iprintf("\x1b[3;1HReady to play!         \n");
             return 1;
         }
         else
@@ -311,9 +312,19 @@ void sendData() {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00};
+
+    int binLength = sizeof(helloBin)/sizeof(helloBin[0]);
+    int i = 0;
+    for (; i<binLength; i++)
+    {
+        //todo eventually put received data somewhere
+        exchangeData(helloBin[i]);
+    }
 }
 
 int checkTradeReady() {
+    //Pretty sure this one's just "send the whole thing the instant
+    //  the partner connects again"
     return 0;
 }
 
